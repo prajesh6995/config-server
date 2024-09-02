@@ -1,0 +1,46 @@
+stages:
+  - build
+  - test
+  - dockerize
+  - deploy
+
+variables:
+  MAVEN_CLI_OPTS: "-s .m2/settings.xml --batch-mode"
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHORT_SHA
+
+cache:
+  paths:
+    - .m2/repository/
+
+before_script:
+  - apt-get update && apt-get install -y maven docker.io
+
+build:
+  stage: build
+  script:
+    - mvn $MAVEN_CLI_OPTS compile
+
+test:
+  stage: test
+  script:
+    - mvn $MAVEN_CLI_OPTS test
+
+dockerize:
+  stage: dockerize
+  script:
+    - docker build -t $IMAGE_TAG .
+    - echo $AWS_ECR_ACCESS_KEY_ID:$AWS_ECR_SECRET_ACCESS_KEY | docker login -u AWS --password-stdin $AWS_ECR_REGISTRY
+    - docker tag $IMAGE_TAG $AWS_ECR_REGISTRY/$IMAGE_TAG
+    - docker push $AWS_ECR_REGISTRY/$IMAGE_TAG
+  only:
+    - main
+
+deploy:
+  stage: deploy
+  script:
+    - echo "Deploying to ECS..."
+    - pip install awscli
+    - aws ecs update-service --cluster $CLUSTER_NAME --service config-server --force-new-deployment
+  only:
+    - main
